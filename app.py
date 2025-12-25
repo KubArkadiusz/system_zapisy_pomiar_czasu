@@ -11,82 +11,114 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 
-# Konfiguracja strony
-st.set_page_config(page_title="Pomiar Czasu - Zapisy", page_icon="🏃")
+# --- KONFIGURACJA STRONY I LOGOWANIE ---
+st.set_page_config(page_title="Pomiar Czasu - Zapisy", page_icon="🏃", layout="wide")
 
-# --- PANEL BOCZNY ---
-st.sidebar.header("Ustawienia Zawodów")
-limit_osob = st.sidebar.number_input("Limit zawodników", min_value=1, value=100)
+# Prosta baza haseł (docelowo można przenieść do Firebase)
+ADMIN_PASSWORD = "admin123" # Zmień na swoje!
 
-st.title("🏃 System Zapisów i Wyników Biegowych")
+if 'logged_in' not in st.session_state:
+    st.session_state['logged_in'] = False
 
-# --- FUNKCJA ZAPISU DO BAZY ---
-def zapisz_zawodnika(dane):
-    try:
-        # Dodajemy nowy dokument z unikalnym ID do kolekcji 'zawodnicy'
-        db.collection("zawodnicy").add(dane)
-        return True
-    except Exception as e:
-        st.error(f"Błąd bazy danych: {e}")
-        return False
-
-# --- SEKCJA FORMULARZA ---
-st.header("📝 Formularz zgłoszeniowy")
-
-with st.form("form_rejestracja", clear_on_submit=True):
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        imie = st.text_input("Imię")
-        nazwisko = st.text_input("Nazwisko")
-        plec = st.selectbox("Płeć", ["M", "K"])
-        data_urodzenia = st.date_input("Data urodzenia", min_value=datetime(1940, 1, 1), value=datetime(1990, 1, 1))
-        
-    with col2:
-        klub = st.text_input("Klub / Drużyna")
-        miejscowosc = st.text_input("Miejscowość")
-        nr_startowy = st.number_input("Nr startowy", min_value=1, step=1)
-
-    submitted = st.form_submit_button("Zatwierdź zgłoszenie")
-
-    if submitted:
-        if imie and nazwisko:
-            # Obliczanie kategorii wiekowej (co 10 lat, np. M40, K30)
-            wiek = datetime.now().year - data_urodzenia.year
-            kat_wiekowa = f"{plec}{(wiek // 10) * 10}"
-            
-            # Przygotowanie słownika danych (zgodnie z Twoim Firebase)
-            nowy_zawodnik = {
-                "Imię": imie,
-                "Nazwisko": nazwisko,
-                "Kobieta/Mężczyzna": plec,
-                "Klub": klub,
-                "Miejscowość": miejscowosc,
-                "Data_Urodzenia": datetime.combine(data_urodzenia, datetime.min.time()),
-                "Kategoria_Wiekowa": kat_wiekowa,
-                "Numer_Startowy": nr_startowy,
-                "Czas": "00:00:00", # Domyślny czas
-                "Pozycja_Meta": 0    # 0 oznacza, że jeszcze nie dobiegł
-            }
-            
-            if zapisz_zawodnika(nowy_zawodnik):
-                st.success(f"✅ Zawodnik {imie} {nazwisko} został zapisany! (Kategoria: {kat_wiekowa})")
+def login():
+    st.sidebar.title("Logowanie Admina")
+    pwd = st.sidebar.text_input("Hasło", type="password")
+    if st.sidebar.button("Zaloguj"):
+        if pwd == ADMIN_PASSWORD:
+            st.session_state['logged_in'] = True
+            st.sidebar.success("Zalogowano!")
+            st.rerun()
         else:
-            st.warning("⚠️ Proszę podać przynajmniej imię i nazwisko.")
+            st.sidebar.error("Błędne hasło")
 
-# --- SEKCJA LISTY STARTOWEJ ---
-st.divider()
-st.header("📋 Lista Startowa")
+if not st.session_state['logged_in']:
+    login()
 
-# Pobieranie danych z Firebase w czasie rzeczywistym
-zawodnicy_ref = db.collection("zawodnicy").order_by("Numer_Startowy")
+# --- POBIERANIE USTAWIEŃ I DANYCH ---
+# Pobieramy limit z osobnej kolekcji 'ustawienia' lub używamy domyślnego
+limit_ref = db.collection("ustawienia").document("konfiguracja").get()
+if limit_ref.exists:
+    limit_zapisow = limit_ref.to_dict().get("limit", 100)
+else:
+    limit_zapisow = 100
+
+# Pobieranie zawodników
+zawodnicy_ref = db.collection("zawodnicy")
 docs = zawodnicy_ref.stream()
 lista_zawodnikow = [doc.to_dict() for doc in docs]
+aktualna_liczba = len(lista_zawodnikow)
+
+# --- WIDOK ADMINA ---
+if st.session_state['logged_in']:
+    st.sidebar.divider()
+    if st.sidebar.button("Wyloguj"):
+        st.session_state['logged_in'] = False
+        st.rerun()
+        
+    st.header("⚙️ Panel Administratora")
+    nowy_limit = st.number_input("Ustaw nowy limit zawodników", min_value=1, value=limit_zapisow)
+    if st.button("Zapisz nowy limit"):
+        db.collection("ustawienia").document("konfiguracja").set({"limit": nowy_limit})
+        st.success("Limit zaktualizowany!")
+        st.rerun()
+    st.divider()
+
+# --- SEKCJA ZAPISÓW (DLA WSZYSTKICH) ---
+st.title("🏃 System Zapisów Biegowych")
+
+if aktualna_liczba >= limit_zapisow:
+    st.error(f"❌ Rejestracja zamknięta! Osiągnięto limit {limit_zapisow} osób.")
+else:
+    st.subheader(f"📝 Formularz zgłoszeniowy (Miejsc pozostało: {limit_zapisow - aktualna_liczba})")
+    
+    with st.form("form_zapisy", clear_on_submit=True):
+        col1, col2 = st.columns(2)
+        with col1:
+            imie = st.text_input("Imię *")
+            nazwisko = st.text_input("Nazwisko *")
+            plec = st.selectbox("Płeć *", ["M", "K"])
+            data_urodzenia = st.date_input("Data urodzenia *", value=datetime(1990, 1, 1))
+        with col2:
+            klub = st.text_input("Klub / Drużyna *")
+            miejscowosc = st.text_input("Miejscowość *")
+            nr_startowy = st.number_input("Nr startowy *", min_value=1, step=1)
+
+        submitted = st.form_submit_button("Zatwierdź zgłoszenie")
+
+        if submitted:
+            # WALIDACJA: Sprawdzenie czy pola nie są puste
+            if not all([imie, nazwisko, klub, miejscowosc]):
+                st.error("❗ Wszystkie pola oznaczone gwiazdką (*) są wymagane!")
+            else:
+                wiek = datetime.now().year - data_urodzenia.year
+                kat_wiekowa = f"{plec}{(wiek // 10) * 10}"
+                
+                nowy_zawodnik = {
+                    "Imię": imie,
+                    "Nazwisko": nazwisko,
+                    "Kobieta/Mężczyzna": plec,
+                    "Klub": klub,
+                    "Miejscowość": miejscowosc,
+                    "Data_Urodzenia": datetime.combine(data_urodzenia, datetime.min.time()),
+                    "Kategoria_Wiekowa": kat_wiekowa,
+                    "Numer_Startowy": nr_startowy,
+                    "Czas": "00:00:00",
+                    "Pozycja_Meta": 0
+                }
+                db.collection("zawodnicy").add(nowy_zawodnik)
+                st.success("✅ Zapisano pomyślnie!")
+                st.rerun()
+
+# --- SEKCJA LISTY (DLA WSZYSTKICH) ---
+st.divider()
+st.header("📋 Lista zapisanych zawodników")
 
 if lista_zawodnikow:
     df = pd.DataFrame(lista_zawodnikow)
-    # Wyświetlamy tylko najważniejsze kolumny dla przejrzystości
-    st.dataframe(df[["Numer_Startowy", "Imię", "Nazwisko", "Klub", "Kategoria_Wiekowa", "Miejscowość"]], use_container_width=True)
-    st.write(f"Liczba zapisanych osób: **{len(lista_zawodnikow)}**")
+    # Wybieramy tylko kolumny, które mają być publiczne
+    kolumny = ["Numer_Startowy", "Imię", "Nazwisko", "Klub", "Miejscowość", "Kategoria_Wiekowa"]
+    # Upewniamy się, że kolumny istnieją w danych
+    df_display = df[[c for c in kolumny if c in df.columns]]
+    st.dataframe(df_display.sort_values(by="Numer_Startowy"), use_container_width=True)
 else:
-    st.info("Baza danych jest obecnie pusta.")
+    st.info("Brak zapisanych zawodników.")
