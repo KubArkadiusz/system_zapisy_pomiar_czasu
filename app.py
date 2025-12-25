@@ -4,7 +4,7 @@ from firebase_admin import credentials, firestore
 from datetime import datetime
 import pandas as pd
 
-# 1. Połączenie z Firebase
+# 1. Połączenie z Firebase - upewnij się, że plik JSON jest w głównym folderze
 if not firebase_admin._apps:
     cred = credentials.Certificate('serviceAccountKey.json')
     firebase_admin.initialize_app(cred)
@@ -12,106 +12,106 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 # --- KONFIGURACJA STRONY ---
-st.set_page_config(page_title="Panel Zapisów - Zawody", page_icon="🏃", layout="centered")
+st.set_page_config(page_title="Zapisy - 12. Harpaganska Dycha", page_icon="🏅", layout="centered")
 
-# --- CSS dla lepszego wyglądu (opcjonalnie) ---
-st.markdown("""
-    <style>
-    .main { background-color: #f5f5f5; }
-    .stButton>button { width: 100%; background-color: #007bff; color: white; border-radius: 5px; height: 3em; font-weight: bold; }
-    .stTextInput>div>div>input { background-color: #ffffff; }
-    </style>
-    """, unsafe_allow_html=True)
-
+# Nagłówek wizualny
+st.image("https://img.freepik.com/free-vector/marathon-runners-concept-illustration_114360-10111.jpg", use_container_width=True)
 st.title("🏃 12. Harpaganska Dycha")
-st.markdown("### **FORMULARZ ZGŁOSZENIOWY**")
-st.info("Pola oznaczone gwiazdką (*) są obowiązkowe.")
+st.markdown("---")
 
-# --- SEKCJA 1: DANE OSOBOWE ---
-with st.form("form_zapisy", clear_on_submit=True):
-    st.subheader("1. Dane osobowe")
-    c1, c2 = st.columns(2)
-    with c1:
-        imie = st.text_input("Imię *")
-        nazwisko = st.text_input("Nazwisko *")
-        plec = st.selectbox("Płeć *", ["Mężczyzna", "Kobieta"])
-    with c2:
-        data_urodzenia = st.date_input("Data urodzenia *", value=datetime(1995, 1, 1), min_value=datetime(1940, 1, 1))
-        miejscowosc = st.text_input("Miejscowość *")
-        kraj = st.selectbox("Kraj *", ["Polska", "Inny"])
+# Pobranie konfiguracji limitu (jeśli nie ma w bazie, ustawiamy na sztywno 150)
+conf_ref = db.collection("ustawienia").document("limit").get()
+max_entries = conf_ref.to_dict().get("wartosc", 150) if conf_ref.exists else 150
 
-    st.divider()
-    
-    # --- SEKCJA 2: KLUB I START ---
-    st.subheader("2. Informacje o starcie")
-    c3, c4 = st.columns(2)
-    with c3:
-        klub = st.text_input("Klub / Drużyna (jeśli brak, wpisz 'brak') *")
-    with c4:
-        numer_startowy = st.number_input("Preferowany numer startowy *", min_value=1, max_value=9999, step=1)
+# Pobieranie aktualnej liczby zawodników
+docs = db.collection("zawodnicy").stream()
+zawodnicy = [d.to_dict() for d in docs]
+current_count = len(zawodnicy)
 
-    st.divider()
+# --- PASEK POSTĘPU ---
+st.subheader("📊 Stan zapisów")
+col_stat1, col_stat2 = st.columns(2)
+col_stat1.metric("Zapisani zawodnicy", f"{current_count}")
+col_stat2.metric("Limit miejsc", f"{max_entries}")
 
-    # --- SEKCJA 3: ZGODY ---
-    st.subheader("3. Oświadczenia")
-    zgoda_regulamin = st.checkbox("Akceptuję regulamin zawodów *")
-    zgoda_rodo = st.checkbox("Wyrażam zgodę na przetwarzanie danych osobowych *")
+procent = min(current_count / max_entries, 1.0)
+st.progress(procent)
 
-    # --- PRZYCISK ZAPISU ---
-    submit_button = st.form_submit_button("WYŚLIJ ZGŁOSZENIE")
-
-    if submit_button:
-        # Bardzo dokładna walidacja
-        pola_tekstowe = [imie, nazwisko, miejscowosc, klub]
-        czy_puste = any(len(p.strip()) == 0 for p in pola_tekstowe)
-        
-        if czy_puste:
-            st.error("❌ BŁĄD: Wszystkie pola tekstowe muszą być wypełnione!")
-        elif not (zgoda_regulamin and zgoda_rodo):
-            st.error("❌ BŁĄD: Musisz zaakceptować regulamin i zgody RODO!")
-        else:
-            # Obliczanie kategorii (np. M30)
-            wiek = datetime.now().year - data_urodzenia.year
-            kod_plci = "M" if plec == "Mężczyzna" else "K"
-            kat_wiekowa = f"{kod_plci}{(wiek // 10) * 10}"
-            
-            # Mapowanie do Twojej struktury Firebase
-            dane_zawodnika = {
-                "Imię": imie.strip(),
-                "Nazwisko": nazwisko.strip(),
-                "Kobieta/Mężczyzna": kod_plci,
-                "Klub": klub.strip(),
-                "Miejscowość": miejscowosc.strip(),
-                "Data_Urodzenia": datetime.combine(data_urodzenia, datetime.min.time()),
-                "Kategoria_Wiekowa": kat_wiekowa,
-                "Numer_Startowy": numer_startowy,
-                "Czas": "00:00:00",
-                "Pozycja_Meta": 0
-            }
-            
-            # Zapis do Firebase
-            db.collection("zawodnicy").add(dane_zawodnika)
-            st.success(f"✅ Dziękujemy {imie}! Zostałeś pomyślnie dopisany do listy startowej.")
-            st.balloons()
-            st.rerun()
-
-# --- SEKCJA 4: LISTA STARTOWA (WIDOK PUBLICZNY) ---
-st.divider()
-st.header("📋 LISTA STARTOWA")
-
-# Pobieranie danych z bazy
-docs = db.collection("zawodnicy").order_by("Numer_Startowy").stream()
-lista_danych = [d.to_dict() for d in docs]
-
-if lista_danych:
-    df = pd.DataFrame(lista_danych)
-    
-    # Wybieramy i nazywamy kolumny jak na dostartu.pl
-    df_view = df[["Numer_Startowy", "Imię", "Nazwisko", "Miejscowość", "Klub", "Kategoria_Wiekowa"]]
-    df_view.columns = ["Nr", "Imię", "Nazwisko", "Miejscowość", "Klub / Drużyna", "Kat."]
-    
-    # Wyświetlanie jako estetyczna tabela
-    st.table(df_view)
-    st.write(f"Łącznie zapisanych: **{len(df)}**")
+if current_count >= max_entries:
+    st.error("⚠️ Brak wolnych miejsc! Rejestracja została zakończona.")
 else:
-    st.info("Lista startowa jest jeszcze pusta. Bądź pierwszy!")
+    # --- FORMULARZ W STYLU DOSTARTU.PL ---
+    st.markdown("### 📝 Formularz zgłoszeniowy")
+    st.caption("Pola oznaczone gwiazdką (*) są obowiązkowe.")
+
+    with st.form("rejestracja_zawodnika", clear_on_submit=True):
+        st.markdown("#### 1. Dane podstawowe")
+        c1, c2 = st.columns(2)
+        with c1:
+            imie = st.text_input("Imię *")
+            nazwisko = st.text_input("Nazwisko *")
+            plec = st.selectbox("Płeć *", ["Mężczyzna", "Kobieta"])
+        with c2:
+            data_ur = st.date_input("Data urodzenia *", value=datetime(1990, 1, 1), min_value=datetime(1940, 1, 1))
+            miejscowosc = st.text_input("Miejscowość *")
+
+        st.markdown("#### 2. Klub i start")
+        c3, c4 = st.columns(2)
+        with c3:
+            klub = st.text_input("Klub / Drużyna *", help="Wpisz 'indywidualnie' jeśli nie należysz do klubu")
+        with c4:
+            kraj = st.text_input("Kraj *", value="Polska")
+
+        st.markdown("#### 3. Zgody i oświadczenia")
+        st.write("Aby wysłać zgłoszenie, musisz zaakceptować poniższe warunki:")
+        zgoda_reg = st.checkbox("Akceptuję regulamin 12. Harpaganskiej Dychy *")
+        zgoda_dane = st.checkbox("Wyrażam zgodę na publikację moich danych na liście startowej *")
+
+        # Przycisk wysyłania
+        submit = st.form_submit_button("ZAREJESTRUJ MNIE")
+
+        if submit:
+            # Weryfikacja
+            pola = [imie, nazwisko, miejscowosc, klub, kraj]
+            if any(len(p.strip()) == 0 for p in pola):
+                st.error("❌ Musisz wypełnić wszystkie pola tekstowe!")
+            elif not (zgoda_reg and zgoda_dane):
+                st.error("❌ Musisz zaznaczyć wymagane zgody!")
+            else:
+                # Logika kategorii wiekowej
+                rok_teraz = datetime.now().year
+                wiek = rok_teraz - data_ur.year
+                plec_kod = "M" if plec == "Mężczyzna" else "K"
+                kat = f"{plec_kod}{(wiek // 10) * 10}"
+                
+                # Przygotowanie danych
+                nowy_zawodnik = {
+                    "Imię": imie.strip(),
+                    "Nazwisko": nazwisko.strip(),
+                    "Kobieta/Mężczyzna": plec_kod,
+                    "Klub": klub.strip(),
+                    "Miejscowość": miejscowosc.strip(),
+                    "Data_Urodzenia": datetime.combine(data_ur, datetime.min.time()),
+                    "Kategoria_Wiekowa": kat,
+                    "Numer_Startowy": current_count + 1, # Automatyczne nadawanie numeru
+                    "Czas": "00:00:00",
+                    "Pozycja_Meta": 0
+                }
+                
+                db.collection("zawodnicy").add(nowy_zawodnik)
+                st.success(f"Dziękujemy {imie}! Zostałeś pomyślnie zarejestrowany.")
+                st.balloons()
+                st.rerun()
+
+# --- PUBLICZNA LISTA STARTOWA ---
+st.markdown("---")
+st.subheader("📋 Lista startowa")
+
+if zawodnicy:
+    df = pd.DataFrame(zawodnicy)
+    # Wybieramy tylko kolumny widoczne dla wszystkich
+    df_view = df[["Numer_Startowy", "Imię", "Nazwisko", "Miejscowość", "Klub", "Kategoria_Wiekowa"]]
+    df_view.columns = ["Nr", "Imię", "Nazwisko", "Miejscowość", "Klub", "Kat."]
+    st.table(df_view.sort_values("Nr"))
+else:
+    st.info("Brak osób na liście. Zapisz się jako pierwszy!")
