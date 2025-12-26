@@ -4,20 +4,22 @@ from firebase_admin import credentials, firestore
 from datetime import datetime
 import pandas as pd
 
-# Inicjalizacja Firebase z Secrets
+# 1. Inicjalizacja Firebase z Secrets
 if not firebase_admin._apps:
-    fb_dict = dict(st.secrets["firebase"])
-    fb_dict["private_key"] = fb_dict["private_key"].replace("\\n", "\n")
-    cred = credentials.Certificate(fb_dict)
-    firebase_admin.initialize_app(cred)
+    try:
+        fb_dict = dict(st.secrets["firebase"])
+        fb_dict["private_key"] = fb_dict["private_key"].replace("\\n", "\n")
+        cred = credentials.Certificate(fb_dict)
+        firebase_admin.initialize_app(cred)
+    except Exception as e:
+        st.error(f"Błąd inicjalizacji Firebase: {e}")
 
 db = firestore.client()
 
 st.title("🏃 12. Harpagańska Dycha")
-st.subheader("Panel Rejestracji Uczestników")
 
-# Formularz
-with st.form("rejestracja_zawodnika", clear_on_submit=True):
+# --- FORMULARZ ---
+with st.form("rejestracja", clear_on_submit=True):
     col1, col2 = st.columns(2)
     with col1:
         imie = st.text_input("Imię *")
@@ -28,33 +30,50 @@ with st.form("rejestracja_zawodnika", clear_on_submit=True):
         miejscowosc = st.text_input("Miejscowość *")
         klub = st.text_input("Klub / Drużyna *")
 
-    # To rozwiązuje błąd "Missing Submit Button"
     submit = st.form_submit_button("ZAREJESTRUJ MNIE")
 
     if submit:
-        if not all([imie, nazwisko, miejscowosc, klub]):
-            st.error("Wszystkie pola są wymagane!")
+        if not all([imie.strip(), nazwisko.strip(), miejscowosc.strip(), klub.strip()]):
+            st.warning("Uzupełnij wszystkie pola!")
         else:
-            wiek = datetime.now().year - data_ur.year
-            kat = f"{'M' if plec == 'Mężczyzna' else 'K'}{(wiek // 10) * 10}"
-            
-            dane = {
-                "Imię": imie,
-                "Nazwisko": nazwisko,
-                "Kobieta/Mężczyzna": "M" if plec == "Mężczyzna" else "K",
-                "Klub": klub,
-                "Miejscowość": miejscowosc,
-                "Data_Urodzenia": datetime.combine(data_ur, datetime.min.time()),
-                "Kategoria_Wiekowa": kat,
-                "Czas": "00:00:00",
-                "Pozycja_Meta": 0
-            }
-            db.collection("zawodnicy").add(dane)
-            st.success("Zapisano pomyślnie!")
-            st.rerun()
+            try:
+                # Przygotowanie danych
+                wiek = datetime.now().year - data_ur.year
+                plec_kod = "M" if plec == "Mężczyzna" else "K"
+                kat = f"{plec_kod}{(wiek // 10) * 10}"
+                
+                nowy_zawodnik = {
+                    "Imię": imie.strip(),
+                    "Nazwisko": nazwisko.strip(),
+                    "Kobieta/Mężczyzna": plec_kod,
+                    "Klub": klub.strip(),
+                    "Miejscowość": miejscowosc.strip(),
+                    "Data_Urodzenia": datetime.combine(data_ur, datetime.min.time()),
+                    "Kategoria_Wiekowa": kat,
+                    "Numer_Startowy": 0, # To uzupełnimy później automatycznie
+                    "Czas": "00:00:00",
+                    "Pozycja_Meta": 0
+                }
+                
+                # PRÓBA ZAPISU Z PODGLĄDEM BŁĘDU
+                doc_ref = db.collection("zawodnicy").add(nowy_zawodnik)
+                st.success(f"✅ Zapisano pomyślnie! ID: {doc_ref[1].id}")
+                st.balloons()
+                # Nie robimy st.rerun() od razu, żeby zobaczyć komunikat sukcesu
+            except Exception as e:
+                st.error(f"❌ Błąd podczas zapisu do bazy: {e}")
 
-# Lista pod spodem
-docs = db.collection("zawodnicy").stream()
-zawodnicy = [d.to_dict() for d in docs]
-if zawodnicy:
-    st.table(pd.DataFrame(zawodnicy)[["Imię", "Nazwisko", "Klub", "Kategoria_Wiekowa"]])
+# --- LISTA STARTOWA (PODGLĄD) ---
+st.divider()
+st.subheader("📋 Lista startowa")
+
+try:
+    docs = db.collection("zawodnicy").stream()
+    zawodnicy = [d.to_dict() for d in docs]
+    if zawodnicy:
+        df = pd.DataFrame(zawodnicy)
+        st.dataframe(df[["Imię", "Nazwisko", "Klub", "Kategoria_Wiekowa"]])
+    else:
+        st.info("Baza jest pusta.")
+except Exception as e:
+    st.error(f"Błąd pobierania listy: {e}")
