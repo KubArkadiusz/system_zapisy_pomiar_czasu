@@ -1,16 +1,19 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
-from datetime import datetime
-import pandas as pd
 
-# --- POŁĄCZENIE Z BAZĄ ---
+# Inicjalizacja Firebase z "Secrets"
 if not firebase_admin._apps:
     try:
-        cred = credentials.Certificate('serviceAccountKey.json')
+        # Pobieramy dane z sekcji [firebase] w Secrets
+        fb_dict = dict(st.secrets["firebase"])
+        # Naprawa formatowania klucza (zamiana tekstu na znaki nowej linii)
+        fb_dict["private_key"] = fb_dict["private_key"].replace("\\n", "\n")
+        
+        cred = credentials.Certificate(fb_dict)
         firebase_admin.initialize_app(cred)
     except Exception as e:
-        st.error(f"Błąd klucza Firebase: {e}")
+        st.error(f"Problem z połączeniem Firebase: {e}")
 
 db = firestore.client()
 
