@@ -1,33 +1,23 @@
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
+from datetime import datetime
+import pandas as pd
 
-# Inicjalizacja Firebase z "Secrets"
+# Inicjalizacja Firebase z Secrets
 if not firebase_admin._apps:
-    try:
-        # Pobieramy dane z sekcji [firebase] w Secrets
-        fb_dict = dict(st.secrets["firebase"])
-        # Naprawa formatowania klucza (zamiana tekstu na znaki nowej linii)
-        fb_dict["private_key"] = fb_dict["private_key"].replace("\\n", "\n")
-        
-        cred = credentials.Certificate(fb_dict)
-        firebase_admin.initialize_app(cred)
-    except Exception as e:
-        st.error(f"Problem z połączeniem Firebase: {e}")
+    fb_dict = dict(st.secrets["firebase"])
+    fb_dict["private_key"] = fb_dict["private_key"].replace("\\n", "\n")
+    cred = credentials.Certificate(fb_dict)
+    firebase_admin.initialize_app(cred)
 
 db = firestore.client()
 
-# --- USTAWIENIA STRONY ---
-st.set_page_config(page_title="Zapisy - Harpagańska Dycha", layout="centered")
-
 st.title("🏃 12. Harpagańska Dycha")
-st.markdown("## FORMULARZ ZGŁOSZENIOWY")
-st.info("Wypełnij uważnie wszystkie pola. Gwiazdka (*) oznacza pole obowiązkowe.")
+st.subheader("Panel Rejestracji Uczestników")
 
-# --- FORMULARZ ---
-with st.form("formularz_startowy", clear_on_submit=True):
-    
-    st.subheader("1. Dane zawodnika")
+# Formularz
+with st.form("rejestracja_zawodnika", clear_on_submit=True):
     col1, col2 = st.columns(2)
     with col1:
         imie = st.text_input("Imię *")
@@ -36,64 +26,35 @@ with st.form("formularz_startowy", clear_on_submit=True):
     with col2:
         data_ur = st.date_input("Data urodzenia *", value=datetime(1995, 1, 1))
         miejscowosc = st.text_input("Miejscowość *")
+        klub = st.text_input("Klub / Drużyna *")
 
-    st.subheader("2. Klub i Drużyna")
-    klub = st.text_input("Klub / Drużyna * (jeśli brak, wpisz 'brak')")
-
-    st.subheader("3. Oświadczenia")
-    akceptacja = st.checkbox("Akceptuję regulamin biegu i RODO *")
-
-    # Przycisk wysyłki
+    # To rozwiązuje błąd "Missing Submit Button"
     submit = st.form_submit_button("ZAREJESTRUJ MNIE")
 
     if submit:
-        # Sprawdzanie czy pola są wypełnione
-        if not (imie.strip() and nazwisko.strip() and miejscowosc.strip() and klub.strip()):
-            st.error("❌ Musisz wypełnić wszystkie pola oznaczone gwiazdką!")
-        elif not akceptacja:
-            st.error("❌ Musisz zaakceptować regulamin!")
+        if not all([imie, nazwisko, miejscowosc, klub]):
+            st.error("Wszystkie pola są wymagane!")
         else:
-            # Obliczanie kategorii wiekowej
             wiek = datetime.now().year - data_ur.year
-            kod_plci = "M" if plec == "Mężczyzna" else "K"
-            kategoria = f"{kod_plci}{(wiek // 10) * 10}"
-
-            # Pobieranie liczby zapisanych osób dla numeru startowego
-            aktualni = db.collection("zawodnicy").get()
-            nowy_nr = len(aktualni) + 1
-
-            # Przygotowanie danych do Firebase
-            zawodnik_dane = {
-                "Imię": imie.strip(),
-                "Nazwisko": nazwisko.strip(),
-                "Kobieta/Mężczyzna": kod_plci,
-                "Klub": klub.strip(),
-                "Miejscowość": miejscowosc.strip(),
+            kat = f"{'M' if plec == 'Mężczyzna' else 'K'}{(wiek // 10) * 10}"
+            
+            dane = {
+                "Imię": imie,
+                "Nazwisko": nazwisko,
+                "Kobieta/Mężczyzna": "M" if plec == "Mężczyzna" else "K",
+                "Klub": klub,
+                "Miejscowość": miejscowosc,
                 "Data_Urodzenia": datetime.combine(data_ur, datetime.min.time()),
-                "Kategoria_Wiekowa": kategoria,
-                "Numer_Startowy": nowy_nr,
+                "Kategoria_Wiekowa": kat,
                 "Czas": "00:00:00",
                 "Pozycja_Meta": 0
             }
-
-            # ZAPIS DO BAZY
-            db.collection("zawodnicy").add(zawodnik_dane)
-            st.success(f"✅ Sukces! {imie}, zostałeś zapisany z numerem {nowy_nr}")
-            st.balloons()
+            db.collection("zawodnicy").add(dane)
+            st.success("Zapisano pomyślnie!")
             st.rerun()
 
-# --- LISTA STARTOWA POD FORMULARZEM ---
-st.markdown("---")
-st.subheader("📋 LISTA STARTOWA")
-
-docs = db.collection("zawodnicy").order_by("Numer_Startowy").stream()
-wszyscy = [d.to_dict() for d in docs]
-
-if wszyscy:
-    df = pd.DataFrame(wszyscy)
-    # Wybieramy czytelne kolumny
-    df_view = df[["Numer_Startowy", "Imię", "Nazwisko", "Miejscowość", "Klub", "Kategoria_Wiekowa"]]
-    df_view.columns = ["Nr", "Imię", "Nazwisko", "Miejscowość", "Klub", "Kat."]
-    st.table(df_view)
-else:
-    st.write("Lista jest obecnie pusta.")
+# Lista pod spodem
+docs = db.collection("zawodnicy").stream()
+zawodnicy = [d.to_dict() for d in docs]
+if zawodnicy:
+    st.table(pd.DataFrame(zawodnicy)[["Imię", "Nazwisko", "Klub", "Kategoria_Wiekowa"]])
