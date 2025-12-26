@@ -1,79 +1,50 @@
 import streamlit as st
-import firebase_admin
-from firebase_admin import credentials, firestore
-from datetime import datetime
 import pandas as pd
 
-# 1. Inicjalizacja Firebase z Secrets
-if not firebase_admin._apps:
-    try:
-        fb_dict = dict(st.secrets["firebase"])
-        fb_dict["private_key"] = fb_dict["private_key"].replace("\\n", "\n")
-        cred = credentials.Certificate(fb_dict)
-        firebase_admin.initialize_app(cred)
-    except Exception as e:
-        st.error(f"Błąd inicjalizacji Firebase: {e}")
-
-db = firestore.client()
+# --- KONFIGURACJA STRONY ---
+st.set_page_config(page_title="Lista Startowa - Harpagańska Dycha", page_icon="🏃", layout="wide")
 
 st.title("🏃 12. Harpagańska Dycha")
+st.subheader("Oficjalna Lista Startowa")
 
-# --- FORMULARZ ---
-with st.form("rejestracja", clear_on_submit=True):
-    col1, col2 = st.columns(2)
-    with col1:
-        imie = st.text_input("Imię *")
-        nazwisko = st.text_input("Nazwisko *")
-        plec = st.selectbox("Płeć *", ["Mężczyzna", "Kobieta"])
-    with col2:
-        data_ur = st.date_input("Data urodzenia *", value=datetime(1995, 1, 1))
-        miejscowosc = st.text_input("Miejscowość *")
-        klub = st.text_input("Klub / Drużyna *")
+# --- FUNKCJA POBIERANIA DANYCH Z GOOGLE DRIVE ---
+@st.cache_data(ttl=600)  # Odświeżaj dane co 10 minut
+def load_data():
+    # Link do Twojego pliku skonwertowany na format CSV dla łatwego odczytu
+    file_id = "1Iaj_ivUyrnRmRujm4PnPL_d1En3M9JLI"
+    url = f"https://docs.google.com/spreadsheets/d/{file_id}/export?format=xlsx"
+    
+    try:
+        # Odczytujemy plik Excel (wymaga biblioteki openpyxl)
+        df = pd.read_excel(url)
+        return df
+    except Exception as e:
+        st.error(f"Nie udało się pobrać danych: {e}")
+        return None
 
-    submit = st.form_submit_button("ZAREJESTRUJ MNIE")
+# --- WYŚWIETLANIE DANYCH ---
+data = load_data()
 
-    if submit:
-        if not all([imie.strip(), nazwisko.strip(), miejscowosc.strip(), klub.strip()]):
-            st.warning("Uzupełnij wszystkie pola!")
-        else:
-            try:
-                # Przygotowanie danych
-                wiek = datetime.now().year - data_ur.year
-                plec_kod = "M" if plec == "Mężczyzna" else "K"
-                kat = f"{plec_kod}{(wiek // 10) * 10}"
-                
-                nowy_zawodnik = {
-                    "Imię": imie.strip(),
-                    "Nazwisko": nazwisko.strip(),
-                    "Kobieta/Mężczyzna": plec_kod,
-                    "Klub": klub.strip(),
-                    "Miejscowość": miejscowosc.strip(),
-                    "Data_Urodzenia": datetime.combine(data_ur, datetime.min.time()),
-                    "Kategoria_Wiekowa": kat,
-                    "Numer_Startowy": 0, # To uzupełnimy później automatycznie
-                    "Czas": "00:00:00",
-                    "Pozycja_Meta": 0
-                }
-                
-                # PRÓBA ZAPISU Z PODGLĄDEM BŁĘDU
-                doc_ref = db.collection("zawodnicy").add(nowy_zawodnik)
-                st.success(f"✅ Zapisano pomyślnie! ID: {doc_ref[1].id}")
-                st.balloons()
-                # Nie robimy st.rerun() od razu, żeby zobaczyć komunikat sukcesu
-            except Exception as e:
-                st.error(f"❌ Błąd podczas zapisu do bazy: {e}")
+if data is not None:
+    # Wybieramy tylko kluczowe kolumny do wyświetlenia (zgodnie z plikiem z dostartu)
+    # Jeśli nazwy kolumn w Twoim Excelu są inne, dostosuj je poniżej:
+    kolumny_widoczne = ["Nr", "Imię", "Nazwisko", "Miejscowość", "Klub", "Kat."]
+    
+    # Sprawdzamy, czy te kolumny istnieją w pliku
+    dostepne_kolumny = [c for c in kolumny_widoczne if c in data.columns]
+    
+    # Statystyki
+    st.write(f"Liczba zapisanych zawodników: **{len(data)}**")
+    
+    # Tabela z możliwością wyszukiwania
+    st.dataframe(
+        data[dostepne_kolumny].sort_values(by="Nr"), 
+        use_container_width=True, 
+        hide_index=True
+    )
+else:
+    st.info("Trwa ładowanie listy startowej lub plik jest pusty.")
 
-# --- LISTA STARTOWA (PODGLĄD) ---
+# --- STOPKA ---
 st.divider()
-st.subheader("📋 Lista startowa")
-
-try:
-    docs = db.collection("zawodnicy").stream()
-    zawodnicy = [d.to_dict() for d in docs]
-    if zawodnicy:
-        df = pd.DataFrame(zawodnicy)
-        st.dataframe(df[["Imię", "Nazwisko", "Klub", "Kategoria_Wiekowa"]])
-    else:
-        st.info("Baza jest pusta.")
-except Exception as e:
-    st.error(f"Błąd pobierania listy: {e}")
+st.caption("Dane odświeżają się automatycznie co 10 minut. Źródło: dostartu.pl")
