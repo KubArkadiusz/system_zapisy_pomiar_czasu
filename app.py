@@ -38,7 +38,7 @@ if data is not None:
     
     # Tabela z możliwością wyszukiwania
     st.dataframe(
-        data[dostepne_kolumny].sort_values(by="Nr"), 
+        data[dostepne_kolumny].sort_values(by="Nr zawodnika"), 
         use_container_width=True, 
         hide_index=True
     )
