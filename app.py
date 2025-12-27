@@ -28,7 +28,7 @@ data = load_data()
 if data is not None:
     # Wybieramy tylko kluczowe kolumny do wyświetlenia (zgodnie z plikiem z dostartu)
     # Jeśli nazwy kolumn w Twoim Excelu są inne, dostosuj je poniżej:
-    kolumny_widoczne = ["Nr zawodnika", "Imię", "Nazwisko", "Miasto", "Nazwa klubu", "Kategoria"]
+    kolumny_widoczne = ["Nr", "Imię", "Nazwisko", "Miasto", "Nazwa klubu", "Kategoria"]
     
     # Sprawdzamy, czy te kolumny istnieją w pliku
     dostepne_kolumny = [c for c in kolumny_widoczne if c in data.columns]
@@ -38,7 +38,7 @@ if data is not None:
     
     # Tabela z możliwością wyszukiwania
     st.dataframe(
-        data[dostepne_kolumny].sort_values(by="Nr zawodnika"), 
+        data[dostepne_kolumny].sort_values(by="Nr"), 
         use_container_width=True, 
         hide_index=True
     )
