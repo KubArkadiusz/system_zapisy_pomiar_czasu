@@ -2,9 +2,9 @@ import streamlit as st
 import pandas as pd
 
 # --- KONFIGURACJA STRONY ---
-st.set_page_config(page_title="Lista Startowa - Harpagańska Dycha", page_icon="🏃", layout="wide")
+st.set_page_config(page_title="Lista Startowa ", page_icon="🏃", layout="wide")
 
-st.title("🏃 12. Harpagańska Dycha")
+st.title("🏃 System pomiaru czasu by Arek")
 st.subheader("Oficjalna Lista Startowa")
 
 # --- FUNKCJA POBIERANIA DANYCH Z GOOGLE DRIVE ---
@@ -47,4 +47,4 @@ else:
 
 # --- STOPKA ---
 st.divider()
-st.caption("Dane odświeżają się automatycznie co 10 minut. Źródło: dostartu.pl")
+st.caption("Dane odświeżają się automatycznie.")
